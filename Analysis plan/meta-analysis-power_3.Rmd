@@ -1,0 +1,279 @@
+---
+title: "Examining the role of orthographic neighbourhood effects during lateralised lexical decision paradigms: A meta-analysis"
+author: "Adam Parker"
+date: "03/06/2020"
+output:
+  pdf_document: default
+---
+
+This markdown file covers the proposed analysis for a meta-analysis of orthographic Nsize effects in the right and left visual field. As we are primarily interested in the effect size in each hemifield, rather than the reliability of interaction between visual field and Nsize, we choose to conduct two meta-analyses testing the main effect in each. The following script first simulates data using effect size estimates for published work and then details a proposed analysis. A power simulation is then conducted to examine the number of studies required to achieved 80% statiscal power to detect an Nsize effect in each visual field. 
+
+This Rmardown accompanies a pre-registration on the OSF: XXX.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(reshape2)
+library(gridExtra) 
+library(grid)
+library(formatR)
+library(meta)
+library(metafor)
+library(tidyverse)
+library(yarrr)
+library(forestplot)
+require(gridExtra)
+require(dmetar)
+options(scipen=999)
+
+# make it reproducible
+set.seed(123)
+```
+
+# Random effects models
+
+We chose to use a random effects model as the studies will differ with several respects: language of participants, Nsizes, etc. 
+
+The first thing to do is simulate data. The means and standard deviations aree sampled from two existing studies: Perea, Acha, and Fraga (2008) and Lavidor and Ellis (2002). Out decision to use these two studies is that they represent two extremes of the published literature. That is, Lavidor and Ellis report almost no effect of Nsize in the RVF while Perea et al. report a clear inhibitory effect in the RVF. We chose to sample the means and standard deviatios for each 'synthetic' study from these two studies so that we could get a feel for how the meta-analysis may look if the true effect was indeed inhibtiory in the RVF but smaller than the estimate report by Perea et al. For example, for the RVF, high N condition we sample between the condition means reported by Perea (549 ms) and Lavidor (515 ms). The sample sizes used here reflect those that are typical of Nsize by visual field manipulations. 
+
+<u>It is important to note that the data here is used only for running the proposed analysis code and getting a feel for running functions from the meta package. It is not used for power simulations.</u> 
+
+The below output includes the estimate from the random-effects models, measures of heterogeneity, and precision which are all cover in the registration document. The anlayses are run using the rma() function from the **matefor** package. The effect sizes and variance are calculated using a function (ES) that uses the equations presented in Borenstein et al. (2009) for calculating variances for within subjects designs. 
+
+## Right visual field
+
+First, we simulate the RVF data.
+
+```{r simulate}
+# set number of studies to be included in the proposed analysis. 
+j <- 15
+# set condition mean and SD
+RVF_H  <- sample(515:549,j, replace= T) # RVF, high N
+RVF_L  <- sample(514:521,j, replace= T) # RVF, low N
+LVF_H  <- sample(542:577,j, replace= T) # LVF, high N
+LVF_L  <- sample(577:580,j, replace= T) # LVF, low N
+mySD1  <- sample(18.5:77,j, replace= T) # RVF, high N
+mySD2  <- sample(17.0:78,j, replace= T) # RVF, low N
+mySD3  <- sample(25.0:71,j, replace= T) # LVF, high N
+mySD4  <- sample(25.7:88,j, replace= T) # LVF, low N
+# create the two visual field data
+# sample size
+sample_size <- sample(20:40, j, replace= T)
+# year
+year <- sample(1990:2020, j, replace= T)
+# correlation
+corr <- rep.int(.8, j) # note, this is based of a replication study we conducted. This is only for the purpose of outlining our analysis plan.
+# RVF
+RVF_sim <- data.frame(cbind(seq_along(1:j),        # study name
+                            year,                  # year
+                            sample_size,           # sample size
+                            RVF_H,                 # high mean
+                            mySD1,                 # high sd
+                            RVF_L,                 # low mean
+                            mySD2,                 # low sd
+                            corr,                  # correlation
+                            "RVF"))                # mark visual field
+# rename for package
+RVF_sim <- RVF_sim %>% 
+  rename(
+    study    = V1,
+    highN    = RVF_H,
+    highN_sd = mySD1,
+    lowN     = RVF_L,
+    lowN_sd  = mySD2,
+    VF       = V9)
+# combined data for running
+RVF_sim$sample_size <- as.numeric(as.character(RVF_sim$sample_size))
+RVF_sim$highN <- as.numeric(as.character(RVF_sim$highN))
+RVF_sim$highN_sd <- as.numeric(as.character(RVF_sim$highN_sd))
+RVF_sim$lowN <- as.numeric(as.character(RVF_sim$lowN))
+RVF_sim$lowN_sd <- as.numeric(as.character(RVF_sim$lowN_sd))
+RVF_sim$corr <- as.numeric(as.character(RVF_sim$corr))
+```
+
+Now that we have the simulated data, we need to calculate the mean difference for a within subjects design. We do this using a function based on the formula presented in Borenstein, Hedges, Higgins, and Rothsetin (2009).
+
+```{r withinES}
+ES<- function(df, M1, M2, S1, S2, N, r){
+    # mean difference
+    df$MD<- M1-M2 # equation 4.12
+    # standard deviation of the difference
+    df$sdif<- sqrt(S1^2 + S2^2 - 2*r*S1*S2) # equation 4.15
+    # varaince 
+    df$var<- (df$sdif^2)/N # equation 4.13
+    # standard error
+    df$se<- sqrt(df$var) # equation 4.14
+    return(df)
+}
+```
+
+Now we have data siulated, start proposed analysis. 
+
+```{r analyses}
+# calculate the ES
+#W do this for RVF
+RVF.ES <- ES(RVF_sim, RVF_sim$highN, RVF_sim$lowN, RVF_sim$highN_sd, RVF_sim$lowN_sd, RVF_sim$sample_size, RVF_sim$corr)
+# now run the meta analysis
+RVF.model <- rma(yi= MD, vi= var, sei= se, data=RVF.ES, method="SJ", test="knha" , digits=3)
+# print
+RVF.model
+# plot
+forest(RVF.model)
+# FUNNEL plots
+# set up 2x2 array for plotting
+par(mfrow=c(2,2))
+# draw funnel plots
+funnel(RVF.model, main="Standard Error", xlab="Effect size (ms)")
+funnel(RVF.model, yaxis="vi", main="Sampling Variance", xlab="Effect size (ms)")
+funnel(RVF.model, yaxis="seinv", main="Inverse Standard Error", xlab="Effect size (ms)")
+funnel(RVF.model, yaxis="vinv", main="Inverse Sampling Variance", xlab="Effect size (ms)")
+```
+
+## Left visual field
+
+First, we simulate the RVF data.
+
+```{r simulateLVF}
+# LVF
+LVF_sim <- data.frame(cbind(seq_along(1:j),        # study name
+                            year,                  # year
+                            sample_size,           # sample size
+                            LVF_H,                 # high mean
+                            mySD3,                 # high sd
+                            LVF_L,                 # low mean
+                            mySD4,                 # low sd
+                            corr,                  # correlation
+                            "LVF"))                # mark visual field
+# rename for package
+LVF_sim <- LVF_sim %>% 
+  rename(
+    study    = V1,
+    highN    = LVF_H,
+    highN_sd = mySD3,
+    lowN     = LVF_L,
+    lowN_sd  = mySD4,
+    VF       = V9)
+# combined data for running
+LVF_sim$sample_size <- as.numeric(as.character(LVF_sim$sample_size))
+LVF_sim$highN <- as.numeric(as.character(LVF_sim$highN))
+LVF_sim$highN_sd <- as.numeric(as.character(LVF_sim$highN_sd))
+LVF_sim$lowN <- as.numeric(as.character(LVF_sim$lowN))
+LVF_sim$lowN_sd <- as.numeric(as.character(LVF_sim$lowN_sd))
+LVF_sim$corr <- as.numeric(LVF_sim$corr)
+```
+
+Now run the analysis for the LVF.
+
+```{r analysesL}
+# calculate the ES
+#W do this for RVF
+LVF.ES <- ES(LVF_sim, LVF_sim$highN, LVF_sim$lowN, LVF_sim$highN_sd, LVF_sim$lowN_sd, LVF_sim$sample_size, LVF_sim$corr)
+# now run the meta analysis
+LVF.model <- rma(yi= MD, vi= var, sei= se, data=LVF.ES, method="SJ", test="knha" , digits=3)
+# print
+LVF.model
+# plot
+forest(LVF.model)
+# FUNNEL plots
+# set up 2x2 array for plotting
+par(mfrow=c(2,2))
+# draw funnel plots
+funnel(LVF.model, main="Standard Error", xlab="Effect size (ms)")
+funnel(LVF.model, yaxis="vi", main="Sampling Variance", xlab="Effect size (ms)")
+funnel(LVF.model, yaxis="seinv", main="Inverse Standard Error", xlab="Effect size (ms)")
+funnel(LVF.model, yaxis="vinv", main="Inverse Sampling Variance", xlab="Effect size (ms)")
+```
+
+## Sensitivity analysis
+
+Because it is possible that we will not be able to estimate correlation coefficients for all studies, we may want to estimate the correlation between Nsize effcts in each visual field. In that case, we may assume r=0.5, because correlations very close to 0 or very close to 1 are not that common in psychological research. If this is the case, then we will want to conduct a sensitivity analysis for each meta analysis by using r= .2 (small effect), r= .5 (medium effect), and r= .8 (large effect). If the interpretation is the same for each, then we would conclude that the correlation doesn't change interpretation of the meta analysis. 
+
+Below we show how this would be achieved using the RVF data.
+
+```{r sensitivity}
+# specify correlations
+corlist <- c(.2, .5, .8)
+# create temporary data to write to before placing within forCurve
+senseDat <- data.frame(matrix(ncol = 5, nrow = length(corlist)))
+  colnames(senseDat) <- c("cor", "beta", "CI-", "CI+", "p")
+# set row counter
+myrow <- 0
+# start sensiticity analysis
+for (i in corlist) {
+  
+  RVF.ES <- ES(RVF_sim, RVF_sim$highN, RVF_sim$lowN, RVF_sim$highN_sd, RVF_sim$lowN_sd, RVF_sim$sample_size, i)
+  # now run the meta analysis
+  RVF.model <- rma(yi= MD, vi= var, sei= se, data=RVF.ES, method="SJ", test="knha" , digits=3)
+
+  # flip counter
+  myrow <- myrow+1
+  # take the useful estimates
+  senseDat$cor[myrow]   <- as.numeric(i) # cor
+  senseDat$beta[myrow]  <- as.numeric(RVF.model[2]) # beta
+  senseDat$p[myrow]     <- as.numeric(RVF.model[5]) # p
+  senseDat$`CI-`[myrow] <- as.numeric(RVF.model[6]) # lower CI
+  senseDat$`CI+`[myrow] <- as.numeric(RVF.model[7]) # lower CI
+
+}
+# now plot the outcome
+ggplot(senseDat, aes(x=as.factor(cor), y=beta, fill=as.factor(cor))) + 
+  geom_bar(stat="identity", color="black", position=position_dodge()) +
+  geom_errorbar(aes(ymin=`CI-`, ymax=`CI+`), width=.2, position=position_dodge(.9)) +
+  theme_classic()
+```
+
+As we can see here, there isn't much of a difference when changing the correlations. So, the conclsuions draw would remain unchanged.
+
+# Power analysis
+
+First, to gain a feel for effect sizes in the published literautre, we calculated Cohen's d for the Nsize manipulation in each visual field for Perea et al. (2008) and Lavidor and Ellis (2002). 
+
+Perea et al. (2008):
+- LVF: 0.91
+- RVF: 1.60
+
+Lavidor and Ellis (2002):
+- LVF: 0.28
+- RVF: 0.02
+
+What is striking is how much variability there is across the two studies in the magnitude of the facilitative and inhibitory effects in each visual field. Rather than base our power analysis on those reported in the published literature, we chose to use a small standardised effect size of interest, i.e. d= .2. 
+
+For power analysis using the *dmetar* package, it is required that you specify the effect size (d), number of studies (k), sample size per condition (n1, n2), and the level of heterogeneity. The value and it's justification are as follows: 
+
+- d= 0.20, any effect below this threshold is likely to be trivial and not of theorectical importance. 
+- k= x, we set this to vary so that we can plot a power curve. 
+- n1= 25, as this seems to reflect the median in the literature. 
+- n2= 25, as this seems to reflect the median in the literature. 
+- p= 0.05, as our acceptable alpha level. 
+- heterogeneity= low, as our inclusion criteria does not allow for a great deal of variation in study design.
+
+```{r power}
+# set list of values for power
+Nstudies <- seq(0, 50, 1)
+# now create dataframe to write to
+forCurve <- data.frame()
+# create temporary data to write to before placing within forCurve
+pwr_sim <- data.frame(matrix(ncol = 2, nrow = length(Nstudies)))
+  colnames(pwr_sim) <- c("n", "pwr")
+# set row counter
+myrow <- 0
+# for each number of studies, gain a power estimate
+for(i in Nstudies) {
+pwr <- dmetar::power.analysis(d=0.20,
+                       k= i,
+                       n1=25,
+                       n2=25,
+                       p=0.05,
+                       heterogeneity = "low")
+myrow <- myrow+1
+pwr_sim$n[myrow] <- i
+pwr_sim$pwr[myrow] <- pwr[2]
+}
+# plot power curve
+ggplot(data=pwr_sim,aes(x=n,y= as.numeric(pwr))) +
+  geom_hline(yintercept=.8, linetype="dashed", color = "red") +
+  geom_point() +
+  geom_line(color="blue") +
+  theme_bw() + ylab("Power") + xlab("Studies included") + ylim(0,1)
+```
+
+The power curve indicates that 21 studies are required to achieve 80% power to detect a small effect size of d= 0.2.
