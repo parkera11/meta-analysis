@@ -10,7 +10,7 @@ output:
 
 This markdown file covers the proposed analysis for a meta-analysis of orthographic Nsize effects in the right and left visual field. As we are primarily interested in the effect size in each hemifield, rather than the reliability of interaction between visual field and Nsize, we choose to conduct two meta-analyses testing the main effect in each.
 
-This Rmardown accompanies a pre-registration on the OSF: XXX.
+This Rmardown accompanies a pre-registration on the OSF: https://osf.io/vknbp/files/
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -31,13 +31,36 @@ options(scipen=999)
 set.seed(123)
 ```
 
+# PRISMA figure
+
+Before we get into the analys, let's summarise inclusion/exclusion at each step. 
+
+```{r PRISMA}
+library(metagear)
+# PUBLISHED LITERATURE
+phases <- c("START_PHASE: 610 studies identified through database searching and key paper references",
+            "232 studies after duplicates removed",
+            "232 of studies with title and abstract screened",
+            "EXCLUDE_PHASE: 225 studies excluded",
+            "8 full-text articles assessed for eligibility",
+            "EXCLUDE_PHASE: 1 full-text articles excluded, published thesis chapters",
+            "7 studies included for further review and data extraction")
+thePlot <- plot_PRISMA(phases, colWidth = 28, excludeDistance = 1)
+
+# FORWARD SEARCHES
+phases2 <- c("START_PHASE: 237 studies identified through forward searches of the cited literature",
+            "41 studies after duplicates removed",
+            "41 of studies with title and abstract screened",
+            "EXCLUDE_PHASE: 41 studies excluded",
+            "0 studies included for further review and data extraction")
+thePlot2 <- plot_PRISMA(phases2, excludeDistance = 1)
+```
+
 # Random effects models
 
-We chose to use a random effects model as the studies will differ with several respects: language of participants, Nsizes, etc. 
+We chose to use a random effects model as the studies will differ with several respects: language of participants, Nsizes, etc. This is done seperately for the LVF and RVF.
 
-This is done seperately for the LVF and RVF.
-
-The below output includes the estimate from the random-effects models, measures of heterogeneity, and precision which are all covered in the registration document. The anlayses are run using the rma() function from the **matefor** package. The effect sizes and variance are calculated using a function (ES) that uses the equations presented in Borenstein et al. (2009) for calculating variances for within subjects designs. 
+The below output includes the estimate from the random-effects models, measures of heterogeneity, and precision which are all covered in the registration document. The anlayses are run using the rma() function from the **metafor** package. The effect sizes and variance are calculated using a function (ES) that uses the equations presented in Borenstein et al. (2009) for calculating variances for within subjects designs. 
 
 We also conduct sensitivty analysis where the estimated correlation is replaced.
 
@@ -47,19 +70,21 @@ First, read the data.
 
 ```{r simulateR}
 data <- read.csv("extracted_dat.csv", na.strings = " ")
+# remove first blank row
+data <- data[-1,]
 # now get the correlations for the RVF
 corrR <- mean(data$r.1, na.rm= TRUE)
 # create RVF data 
-RVF_dat <- dplyr::select(data, Source.name, Source.year, RVF.High.N, RVF.High.N.sd, RVF.Low.N, RVF.Low.N.sd, Sample.size)
+RVF_dat <- dplyr::select(data, Source.name, Full.title, Source.year, RVF.High.N, RVF.High.N.sd, RVF.Low.N, RVF.Low.N.sd, Sample.size)
 # rename for package
 RVF_dat <- RVF_dat %>% 
   rename(
+    study    = Full.title,
     highN    = RVF.High.N,
     highN_sd = RVF.High.N.sd,
     lowN     = RVF.Low.N,
     lowN_sd  = RVF.Low.N.sd)
 # add columns
-RVF_dat$study <- paste0(RVF_dat$Source.name, " (", RVF_dat$Source.year, ")")
 RVF_dat$corr <- corrR
 RVF_dat$VF <- "RVF"
 # ensure formatted correctly
@@ -69,9 +94,10 @@ RVF_dat$highN_sd <- as.numeric(as.character(RVF_dat$highN_sd))
 RVF_dat$lowN <- as.numeric(as.character(RVF_dat$lowN))
 RVF_dat$lowN_sd <- as.numeric(as.character(RVF_dat$lowN_sd))
 RVF_dat$corr <- as.numeric(as.character(RVF_dat$corr))
+RVF_dat$study <- as.character(RVF_dat$study)
 ```
 
-Now that we have the simulated data, we need to calculate the mean difference for a within subjects design. We do this using a function based on the formula presented in Borenstein, Hedges, Higgins, and Rothsetin (2009).
+Now that we have the data in the correct format, we need to calculate the mean difference for a within subjects design. We do this using a function based on the formula presented in Borenstein, Hedges, Higgins, and Rothsetin (2009).
 
 ```{r withinES}
 ES<- function(df, M1, M2, S1, S2, N, r){
@@ -87,33 +113,35 @@ ES<- function(df, M1, M2, S1, S2, N, r){
 }
 ```
 
-Now we have data siulated, start proposed analysis. 
+Now we can start the proposed analysis. 
 
 ```{r analysesR}
 # calculate the ES
 #W do this for RVF
 RVF.ES <- ES(RVF_dat, RVF_dat$highN, RVF_dat$lowN, RVF_dat$highN_sd, RVF_dat$lowN_sd, RVF_dat$sample_size, RVF_dat$corr)
 # now run the meta analysis
-RVF.model <- rma(yi= MD, vi= var, sei= se, data=RVF.ES, method="SJ", test="knha" , digits=3)
+RVF.model <- rma(yi= MD, vi= var, sei= se, data=RVF.ES, method="SJ", test="knha" , digits=3, slab = study)
 # print
 RVF.model
+regtest(RVF.model)
 # plot
 forest(RVF.model)
+grid.text("(B)", .5, .85)
 # FUNNEL plots
 # set up 2x2 array for plotting
 par(mfrow=c(2,2))
 # draw funnel plots
-funnel(RVF.model, main="Standard Error", xlab="Effect size (ms)")
-funnel(RVF.model, yaxis="vi", main="Sampling Variance", xlab="Effect size (ms)")
-funnel(RVF.model, yaxis="seinv", main="Inverse Standard Error", xlab="Effect size (ms)")
-funnel(RVF.model, yaxis="vinv", main="Inverse Sampling Variance", xlab="Effect size (ms)")
+funnel(RVF.model, main="Standard Error [RVF]", xlab="Effect size (ms)")
+funnel(RVF.model, yaxis="vi", main="Sampling Variance [RVF]", xlab="Effect size (ms)")
+funnel(RVF.model, yaxis="seinv", main="Inverse Standard Error [RVF]", xlab="Effect size (ms)")
+funnel(RVF.model, yaxis="vinv", main="Inverse Sampling Variance [RVF]", xlab="Effect size (ms)")
 ```
 
 The estimate is significantly different from zero, so we can conlcude that the effect is truely inhibitory in the RVF/left hemisphere. Now let's run some sensitivity analyses using predetermined levels of correlation.
 
 ```{r sensitivityR}
 # specify correlations
-corlist <- c(.2, .5, .8, 1)
+corlist <- c(.2, .5, .8)
 # create temporary data to write to before placing within forCurve
 senseDat <- data.frame(matrix(ncol = 5, nrow = length(corlist)))
   colnames(senseDat) <- c("cor", "beta", "CI-", "CI+", "p")
@@ -136,11 +164,10 @@ for (i in corlist) {
   senseDat$`CI+`[myrow] <- as.numeric(RVF.model[7]) # lower CI
 
 }
-# now plot the outcome
-ggplot(senseDat, aes(x=as.factor(cor), y=beta, fill=as.factor(cor))) + 
-  geom_bar(stat="identity", color="black", position=position_dodge()) +
-  geom_errorbar(aes(ymin=`CI-`, ymax=`CI+`), width=.2, position=position_dodge(.9)) +
-  theme_classic()
+
+# write df
+senseDat.R <- senseDat
+senseDat.R$VF <- "RVF"
 ```
 
 Regardless of the correlation, it appears that the effect is inhibitory. 
@@ -148,20 +175,21 @@ Regardless of the correlation, it appears that the effect is inhibitory.
 ## Left visual field
 
 First, we run again for LVF data.
+
 ```{r simulateL}
 # now get the correlations for the RVF
 corrL <- mean(data$r, na.rm= TRUE)
 # create RVF data 
-LVF_dat <- dplyr::select(data, Source.name, Source.year, LVF.High.N, LVF.High.N.sd, LVF.Low.N, LVF.Low.N.sd, Sample.size)
+LVF_dat <- dplyr::select(data, Full.title, Source.name, Source.year, LVF.High.N, LVF.High.N.sd, LVF.Low.N, LVF.Low.N.sd, Sample.size)
 # rename for package
 LVF_dat <- LVF_dat %>% 
   rename(
+    study    = Full.title,
     highN    = LVF.High.N,
     highN_sd = LVF.High.N.sd,
     lowN     = LVF.Low.N,
     lowN_sd  = LVF.Low.N.sd)
 # add columns
-LVF_dat$study <- paste0(LVF_dat$Source.name, " (", LVF_dat$Source.year, ")")
 LVF_dat$corr <- corrL
 LVF_dat$VF <- "LVF"
 # ensure formatted correctly
@@ -171,6 +199,7 @@ LVF_dat$highN_sd <- as.numeric(as.character(LVF_dat$highN_sd))
 LVF_dat$lowN <- as.numeric(as.character(LVF_dat$lowN))
 LVF_dat$lowN_sd <- as.numeric(as.character(LVF_dat$lowN_sd))
 LVF_dat$corr <- as.numeric(as.character(LVF_dat$corr))
+LVF_dat$study <- as.character(LVF_dat$study)
 ```
 
 Now run the analysis for the LVF.
@@ -180,26 +209,28 @@ Now run the analysis for the LVF.
 #W do this for LVF
 LVF.ES <- ES(LVF_dat, LVF_dat$highN, LVF_dat$lowN, LVF_dat$highN_sd, LVF_dat$lowN_sd, LVF_dat$sample_size, LVF_dat$corr)
 # now run the meta analysis
-LVF.model <- rma(yi= MD, vi= var, sei= se, data=LVF.ES, method="SJ", test="knha" , digits=3)
+LVF.model <- rma(yi= MD, vi= var, sei= se, data=LVF.ES, method="SJ", test="knha" , digits=3, slab= study)
 # print
 LVF.model
+regtest(LVF.model)
 # plot
 forest(LVF.model)
+grid.text("(A)", .5, .85)
 # FUNNEL plots
 # set up 2x2 array for plotting
 par(mfrow=c(2,2))
 # draw funnel plots
-funnel(LVF.model, main="Standard Error", xlab="Effect size (ms)")
-funnel(LVF.model, yaxis="vi", main="Sampling Variance", xlab="Effect size (ms)")
-funnel(LVF.model, yaxis="seinv", main="Inverse Standard Error", xlab="Effect size (ms)")
-funnel(LVF.model, yaxis="vinv", main="Inverse Sampling Variance", xlab="Effect size (ms)")
+funnel(LVF.model, main="Standard Error [LVF]", xlab="Effect size (ms)")
+funnel(LVF.model, yaxis="vi", main="Sampling Variance [LVF]", xlab="Effect size (ms)")
+funnel(LVF.model, yaxis="seinv", main="Inverse Standard Error [LVF]", xlab="Effect size (ms)")
+funnel(LVF.model, yaxis="vinv", main="Inverse Sampling Variance [LVF]", xlab="Effect size (ms)")
 ```
 
 The estimate is significantly different from zero, so we can conlcude that the effect is truely facilitatory in the LVF/right hemisphere hemisphere. Now let's run some sensitivity analyses using predetermined levels of correlation.
 
 ```{r sensitivityL}
 # specify correlations
-corlist <- c(.2, .5, .8, 1)
+corlist <- c(.2, .5, .8)
 # create temporary data to write to before placing within forCurve
 senseDat <- data.frame(matrix(ncol = 5, nrow = length(corlist)))
   colnames(senseDat) <- c("cor", "beta", "CI-", "CI+", "p")
@@ -222,61 +253,46 @@ for (i in corlist) {
   senseDat$`CI+`[myrow] <- as.numeric(LVF.model[7]) # lower CI
 
 }
+
+# write df
+senseDat.L <- senseDat
+senseDat.L$VF <- "LVF"
+# merge
+# write df
+senseDat.full <- rbind(senseDat.L, senseDat.R)
 # now plot the outcome
-ggplot(senseDat, aes(x=as.factor(cor), y=beta, fill=as.factor(cor))) + 
+ggplot(senseDat.full, aes(x=as.factor(cor), y=beta, fill=as.factor(cor))) + 
   geom_bar(stat="identity", color="black", position=position_dodge()) +
   geom_errorbar(aes(ymin=`CI-`, ymax=`CI+`), width=.2, position=position_dodge(.9)) +
-  theme_classic()
+  facet_wrap(.~ VF) + scale_fill_grey(start = 0.3, end = .9) +
+  theme_bw(18) + xlab("Correlation estimate") + ylab("RE model estimate of N effect") + theme(legend.position="top") +
+  theme(legend.position = 'none', legend.title=element_blank())  + facet_wrap(.~VF) 
+  
 ```
 
-Regardless of the correlation used, the effect os always inhibitory.
+Regardless of the correlation used, the effect os always facilitatory.
 
 # Exploratory analysis
 
-This inidicates that 
-
-## Difference between the visual fields. 
-
-This exploratory analysis lets us check that there is a reliable difference between the two across visual fields.
-
-```{r meta-regression1}
-# combined visual fields
-two.VF <-rbind(RVF.ES, LVF.ES)
-# set contasts
-two.VF$VF <- as.factor(two.VF$VF)
-  contrasts(two.VF$VF) <- contr.sum
-# now run lm
-rma(yi= MD, vi= var, mods = ~ factor(VF), data=two.VF)
-```
-
-This inidcates that there is a real strong statistical difference between the two fields. We knew this, but it is reasuuring to know.
-
-## Number of trials
-
-With few trials, the estimates means may not be so relibale. Let's have a look at how the number of word trials per condition influence the effects. 
-
-```{r meta-regression2}
-data$study <- paste0(data$Source.name, " (", data$Source.year, ")")
-# get number of trials
-trials.dat <- dplyr::select(data, study, Number.of.word.trials)
-# merge them
-two.VF<- cbind(two.VF, trials.dat)
-# now run lm
-rma(yi= MD, vi= var, mods = ~ Number.of.word.trials, data=two.VF)
-```
-
-This didn't seem to have a very large influence. 
+To explore heterogenetiy, we conducted exploratory analysis using meta-regression.
 
 ## Size of the N manipulation
 
-```{r meta-regression3}
+```{r meta-regression2}
 data$ndif <- as.numeric(data$High.N) - as.numeric(data$Low.N)
 # get number ndif
-ndif.dat <- dplyr::select(data, study, ndif)
+ndif.dat <- dplyr::select(data, Full.title, ndif)
+# RVF
 # merge them
-two.VF<- cbind(two.VF, ndif.dat)
+RVF.ES<- merge(RVF.ES, ndif.dat, by.x= "study", by.y= "Full.title")
 # now run lm
-rma(yi= MD, vi= var, mods = ~ factor(VF) * ndif, data=two.VF)
+rma(yi= MD, vi= var, mods = ~ ndif, data=RVF.ES)
+# LVF
+# merge them
+LVF.ES<- merge(LVF.ES, ndif.dat, by.x= "study", by.y= "Full.title")
+# now run lm
+rma(yi= MD, vi= var, mods = ~ ndif, data=LVF.ES)
 ```
 
 There isn't much support for the strength of the manipulation influencing this. 
+
